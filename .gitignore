@@ -1,0 +1,8 @@
+# compiled output
+*.o
+*.ppu
+*.a
+tiemesh
+keytest
+# logs
+*.log
