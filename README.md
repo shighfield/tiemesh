@@ -63,7 +63,7 @@ lag behind the sources if a commit forgets to refresh it.
 
 ```
 ./tiemesh --serial /dev/ttyACM0        # Linux
-./tiemesh --serial COM5                # Windows
+tiemesh.exe --serial COM5              # Windows (COM number is in Device Manager)
 ./tiemesh --serial /dev/cu.usbmodem1   # macOS
 ./tiemesh --tcp 192.168.1.50           # radio on WiFi (default port 4403)
 ./tiemesh --tcp meshtastic.local:4403  # host:port form
@@ -137,6 +137,11 @@ Nodes are displayed by their short name once the radio has learned it, falling
 back to the `!aabbccdd` id for nodes that haven't sent a NodeInfo yet. `/log <n>`
 re-resolves ids when replaying the file, so lines logged before a node's name was
 known will show the name if it has been learned since. `/nodes` lists both the
+short name and the id together. `/names` switches between short names alone
+(`OO11`) and short names with their ids (`OO11 (!458f4727)`), which is useful
+when two nodes share a short name. Start in the id-showing mode with
+`--show-ids`.
+
 `/whois <target>` asks a specific node to send its NodeInfo so its name is
 learned on demand, rather than waiting for that node's next scheduled name
 broadcast — handy for the many heard-but-unnamed nodes on a large mesh. Like
@@ -144,11 +149,6 @@ broadcast — handy for the many heard-but-unnamed nodes on a large mesh. Like
 and less reliable than plain messages, and your radio already auto-requests a
 name the first time it hears an unknown node, so `/whois` is essentially a
 manual retry.
-
-short name and the id together. `/names` switches between short names alone
-(`OO11`) and short names with their ids (`OO11 (!458f4727)`), which is useful
-when two nodes share a short name. Start in the id-showing mode with
-`--show-ids`.
 
 When you type a message (not a command) and press Enter, tiemesh asks you to
 confirm before transmitting — it shows the destination (`channel N`, or `DM to
@@ -261,6 +261,11 @@ which decodes exactly to this field layout.
   so the background reader thread works; without it FPC aborts with runtime
   error 232 ("no thread support compiled in"). It targets standard FPC/Lazarus
   units (`Serial`, `Crt`, `Classes`, `SyncObjs`).
+* **The TCP transport reuses the serial stream framer** and was verified against
+  a mock server (correct framing and `want_config` handshake on the wire); it
+  has had less soak time against real radios than the serial path.
+* **The Windows build is cross-compiled and smoke-tested under Wine** (argument
+  parsing and all exit paths), not yet on real Windows hardware with a radio.
 * **BLE is Linux/BlueZ‑only, opt‑in, and untested on hardware.** `meshble.pas`
   uses BlueZ over D‑Bus and is only compiled with `-dMESH_BLE`. It requires the
   radio to be paired/trusted first (`bluetoothctl`). It polls the `FromRadio`

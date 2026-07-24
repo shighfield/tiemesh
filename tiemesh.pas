@@ -1498,7 +1498,12 @@ begin
   begin
     Writeln('No radio specified. Connect with one of:');
     Writeln;
-    Writeln('  tiemesh --serial /dev/ttyACM0     radio on USB serial (COM5 on Windows)');
+    {$IFDEF WINDOWS}
+    Writeln('  tiemesh --serial COM5             radio on USB serial');
+    Writeln('                                    (find the COM number in Device Manager)');
+    {$ELSE}
+    Writeln('  tiemesh --serial /dev/ttyACM0     radio on USB serial');
+    {$ENDIF}
     Writeln('  tiemesh --tcp <its-ip>            radio on WiFi (port 4403)');
     {$IFDEF MESH_BLE}
     Writeln('  tiemesh --ble AA:BB:CC:DD:EE:FF   radio over Bluetooth LE');
