@@ -3,7 +3,7 @@ program tiemesh;
   A terminal Meshtastic client.
 
   Features:
-    * connects to a radio over serial (or BLE, see below)
+    * connects to a radio over serial, WiFi/TCP, or BLE (see below)
     * node list            /nodes
     * channel list         /channels
     * direct messages      /dm <target> <text>   (or set a default with /to)
@@ -22,6 +22,7 @@ program tiemesh;
   Run:
       ./tiemesh --serial /dev/ttyACM0
       ./tiemesh --serial COM5
+      ./tiemesh --tcp 192.168.1.50          (radio on WiFi; port defaults to 4403)
       ./tiemesh --ble AA:BB:CC:DD:EE:FF     (only if built with -dMESH_BLE)
 
   The on-screen log is colourised; pass --no-colour to disable it (the log FILE
@@ -1391,12 +1392,14 @@ procedure Usage;
 begin
   Writeln('Usage:');
   Writeln('  tiemesh --serial <port> [--baud <rate>] [--verbose] [--no-colour] [--show-ids]');
+  Writeln('  tiemesh --tcp <host[:port]> [--verbose] [--no-colour] [--show-ids]');
   {$IFDEF MESH_BLE}
   Writeln('  tiemesh --ble <address> [--ble-adapter <hciN>] [--verbose] [--no-colour]');
   {$ENDIF}
   Writeln;
   Writeln('Examples:');
   Writeln('  tiemesh --serial /dev/ttyACM0');
+  Writeln('  tiemesh --tcp 192.168.1.50            (radio on WiFi, default port 4403)');
   Writeln('  tiemesh --serial COM5 --baud 115200');
   Writeln('  tiemesh --serial /dev/ttyACM0 --no-colour');
   Writeln('  tiemesh --serial /dev/ttyACM0 --show-ids');
@@ -1407,15 +1410,16 @@ end;
 
 function BuildTransport: ITransport;
 var
-  i: Integer;
-  a, port, ble, baudS: string;
+  i, p: Integer;
+  a, port, ble, tcp, baudS: string;
   {$IFDEF MESH_BLE}bleAdapter: string;{$ENDIF}
   baud, code: LongInt;
-  hops: LongInt;
+  hops, tcpPort: LongInt;
 begin
   Result := nil;
   port := '';
   ble := '';
+  tcp := '';
   {$IFDEF MESH_BLE}bleAdapter := 'hci0';{$ENDIF}
   baud := 115200;
   i := 1;
@@ -1423,6 +1427,7 @@ begin
   begin
     a := ParamStr(i);
     if (a = '--serial') or (a = '-s') then begin Inc(i); if i <= ParamCount then port := ParamStr(i); end
+    else if (a = '--tcp') or (a = '-t') then begin Inc(i); if i <= ParamCount then tcp := ParamStr(i); end
     else if (a = '--ble') or (a = '-b') then begin Inc(i); if i <= ParamCount then ble := ParamStr(i); end
     else if (a = '--baud') then begin Inc(i); if i <= ParamCount then baudS := ParamStr(i); end
     else if (a = '--verbose') or (a = '-v') then Verbose := True
@@ -1465,6 +1470,23 @@ begin
     Writeln('BLE support was not compiled in. Rebuild with -dMESH_BLE (Linux/BlueZ).');
     Halt(2);
     {$ENDIF}
+  end
+  else if tcp <> '' then
+  begin
+    tcpPort := 4403;
+    p := LastDelimiter(':', tcp);
+    if p > 0 then
+    begin
+      Val(Copy(tcp, p + 1, MaxInt), tcpPort, code);
+      if (code <> 0) or (tcpPort < 1) or (tcpPort > 65535) then
+      begin
+        Writeln('Bad port in "', tcp, '" (expected host or host:port).');
+        Halt(2);
+      end;
+      tcp := Copy(tcp, 1, p - 1);
+    end;
+    Writeln('Connecting to ', tcp, ':', tcpPort, ' ...');
+    Result := TTcpTransport.Create(tcp, Word(tcpPort));
   end
   else if port <> '' then
   begin

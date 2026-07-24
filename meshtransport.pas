@@ -14,16 +14,19 @@ unit MeshTransport;
       (see meshble.pas)
 
   TSerialTransport implements the stream format over a serial port using the
-  RTL 'Serial' unit, which works on both Unix and Windows. A background thread
-  reads bytes, reassembles frames, and pushes complete packets / debug lines
-  into thread-safe queues that the main thread drains.
+  RTL 'Serial' unit, which works on both Unix and Windows. TTcpTransport
+  implements the same stream format over a TCP connection to a radio on the
+  network (WiFi-capable devices listen on port 4403). In both, a background
+  thread reads bytes, reassembles frames, and pushes complete packets / debug
+  lines into thread-safe queues that the main thread drains.
 }
 {$mode objfpc}{$H+}
 
 interface
 
 uses
-  SysUtils, Classes, SyncObjs, Serial{$IFDEF UNIX}, BaseUnix{$ENDIF};
+  SysUtils, Classes, SyncObjs, Serial, Sockets, SSockets
+  {$IFDEF UNIX}, BaseUnix{$ENDIF};
 
 type
   ITransport = interface
@@ -109,6 +112,18 @@ type
     procedure RawClose; override;
   public
     constructor Create(const APort: string; ABaud: LongInt = 115200);
+  end;
+
+  TTcpTransport = class(TStreamTransportBase)
+  private
+    FSock: TInetSocket;
+  protected
+    function RawRead(var buf; count: Integer): Integer; override;
+    function RawWrite(const buf; count: Integer): Integer; override;
+    procedure RawClose; override;
+  public
+    constructor Create(const AHost: string; APort: Word = 4403);
+    destructor Destroy; override;
   end;
 
 implementation
@@ -443,6 +458,49 @@ end;
 procedure TSerialTransport.RawClose;
 begin
   SerClose(FHandle);
+end;
+
+{ ======================= TTcpTransport ======================= }
+
+constructor TTcpTransport.Create(const AHost: string; APort: Word);
+begin
+  inherited Create;
+  FSock := TInetSocket.Create(AHost, APort);  { raises ESocketError on failure }
+  StartReader;
+end;
+
+destructor TTcpTransport.Destroy;
+begin
+  { inherited Close joins the reader thread, which may be mid-read on FSock,
+    so the socket object must outlive it }
+  inherited Destroy;
+  FSock.Free;
+end;
+
+function TTcpTransport.RawRead(var buf; count: Integer): Integer;
+begin
+  Result := FSock.Read(buf, count);
+  if Result = 0 then
+  begin
+    { A zero-byte TCP read means the peer closed the connection - fatal, not
+      "no data yet". Clear errno so the reader thread does not mistake it for
+      a stale EINTR/EAGAIN and retry forever. }
+    {$IFDEF UNIX}fpseterrno(0);{$ENDIF}
+    Result := -1;
+  end;
+end;
+
+function TTcpTransport.RawWrite(const buf; count: Integer): Integer;
+begin
+  Result := FSock.Write(buf, count);
+end;
+
+procedure TTcpTransport.RawClose;
+begin
+  { shutdown (not close) unblocks the reader's pending recv; the socket is
+    freed in the destructor once the thread has joined }
+  if FSock <> nil then
+    fpshutdown(FSock.Handle, SHUT_RDWR);
 end;
 
 end.

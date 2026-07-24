@@ -1,9 +1,9 @@
 # Meshtastic terminal client (Free Pascal)
 
 A console client for a Meshtastic radio, written in Object Pascal for the Free
-Pascal Compiler (FPC / Lazarus). It talks to the radio over **serial (USB)** and,
-optionally, **Bluetooth LE**, and gives you a node list, channels, direct
-messages, traceroute, and a clear‑screen‑but‑keep‑the‑log view.
+Pascal Compiler (FPC / Lazarus). It talks to the radio over **serial (USB)**,
+**WiFi (TCP)**, or optionally **Bluetooth LE**, and gives you a node list,
+channels, direct messages, traceroute, and a clear‑screen‑but‑keep‑the‑log view.
 
 ## What "the radio" means here
 
@@ -18,13 +18,13 @@ device. The same protobuf protocol is used over serial, TCP and BLE.
 |------|---------|
 | `tiemesh.pas` | The program: terminal UI, commands, message log |
 | `meshclient.pas` | Node database, channels, handshake, send/dispatch logic |
-| `meshtransport.pas` | Transport interface + serial transport + stream framing |
+| `meshtransport.pas` | Transport interface + serial & TCP transports + stream framing |
 | `meshproto.pas` | Hand-rolled protobuf wire codec + Meshtastic messages |
 | `meshble.pas` | Optional Linux/BlueZ BLE transport (opt-in, see below) |
 
 ## Build
 
-Serial only (works on Linux, Windows, macOS):
+Serial + TCP (works on Linux, Windows, macOS):
 
 ```
 fpc tiemesh.pas
@@ -42,8 +42,16 @@ fpc -dMESH_BLE tiemesh.pas
 ./tiemesh --serial /dev/ttyACM0        # Linux
 ./tiemesh --serial COM5                # Windows
 ./tiemesh --serial /dev/cu.usbmodem1   # macOS
+./tiemesh --tcp 192.168.1.50           # radio on WiFi (default port 4403)
+./tiemesh --tcp meshtastic.local:4403  # host:port form
 ./tiemesh --ble AA:BB:CC:DD:EE:FF      # only if built with -dMESH_BLE
 ```
+
+For `--tcp` the radio must be on your network with WiFi enabled in its network
+settings (e.g. a Heltec V3/V4, RAK, or T-Beam with WiFi configured via the
+phone app); the firmware then listens on TCP port 4403. Note the device accepts
+only **one** TCP client at a time, and a WiFi-connected radio switches off its
+Bluetooth.
 
 Add `--verbose` to also show the radio's debug console output. Add
 `--baud <rate>` to override the serial speed (default 115200). Add `--show-ids`
@@ -187,7 +195,7 @@ is guesswork:
   packets whose `decoded` (`Data`) field is already populated; the device
   decrypts on receive and encrypts on send. This client never needs the PSK. —
   Meshtastic Client API docs.
-* **Keep-alive heartbeat.** The radio stops streaming packets to a serial/BLE
+* **Keep-alive heartbeat.** The radio stops streaming packets to a serial/TCP/BLE
   client that goes quiet, so the client must periodically send a
   `ToRadio.heartbeat` (field 7). The firmware describes this message as used to
   keep the connection awake on serial, and the official Python client sends one
