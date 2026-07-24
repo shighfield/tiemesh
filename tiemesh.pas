@@ -1440,6 +1440,7 @@ begin
       if i <= ParamCount then bleAdapter := ParamStr(i);
       {$ENDIF}
     end
+    else if (a = '-h') or (a = '--help') then begin Usage; Halt(0); end
     else if (a = '--no-bell') then BellOn := False
     else if (a = '--bell-cmd') then begin Inc(i); if i <= ParamCount then BellCmd := ParamStr(i); end
     else if (a = '--hops') then
@@ -1495,7 +1496,17 @@ begin
   end
   else
   begin
-    Usage;
+    Writeln('No radio specified. Connect with one of:');
+    Writeln;
+    Writeln('  tiemesh --serial /dev/ttyACM0     radio on USB serial (COM5 on Windows)');
+    Writeln('  tiemesh --tcp <its-ip>            radio on WiFi (port 4403)');
+    {$IFDEF MESH_BLE}
+    Writeln('  tiemesh --ble AA:BB:CC:DD:EE:FF   radio over Bluetooth LE');
+    {$ELSE}
+    Writeln('  tiemesh --ble AA:BB:CC:DD:EE:FF   Bluetooth LE (needs -dMESH_BLE build)');
+    {$ENDIF}
+    Writeln;
+    Writeln('Run "tiemesh --help" for all options.');
     Halt(1);
   end;
 end;
