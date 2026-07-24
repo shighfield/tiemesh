@@ -2,6 +2,9 @@
 *.o
 *.ppu
 *.a
+*.exe
+# ...except the published prebuilt Windows binary
+!tiemesh.exe
 tiemesh
 keytest
 # logs

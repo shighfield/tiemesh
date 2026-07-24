@@ -36,6 +36,29 @@ With the Linux BLE transport compiled in as well:
 fpc -dMESH_BLE tiemesh.pas
 ```
 
+### Cross-compiling for Windows from Linux
+
+With the win64 RTL units installed (build them once from the FPC sources with
+`make rtl packages OS_TARGET=win64 CPU_TARGET=x86_64`, then
+`make rtl_install packages_install ... INSTALL_PREFIX=/usr`), it's just:
+
+```
+fpc -Twin64 tiemesh.pas
+```
+
+No MinGW needed — FPC links PE executables with its internal linker.
+
+### Prebuilt Windows binary
+
+`tiemesh.exe` in this repo is a prebuilt 64-bit Windows binary, cross-compiled
+from the sources at the same commit. It's fully static — no DLLs or installer,
+just run it from a terminal (`tiemesh.exe --serial COM5`, or `--tcp <ip>`).
+
+It's provided as a convenience, but you should really build your own from the
+source: it's one `fpc` command, you can read exactly what you're running, and
+you're not trusting a binary blob someone committed to a git repo. It may also
+lag behind the sources if a commit forgets to refresh it.
+
 ## Run
 
 ```
