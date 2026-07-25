@@ -697,6 +697,87 @@ begin
   else Result := Format('%dh', [age div 3600]);
 end;
 
+{ UTF-8 aware column helpers. Format('%-5s') pads by BYTE count, so a name
+  containing an emoji (4 bytes, rendered 2 cells wide) breaks column alignment.
+  These measure terminal cells instead: emoji/CJK count as 2, combining marks /
+  zero-width joiners / variation selectors as 0. The width table is a pragmatic
+  approximation of wcwidth, not the full Unicode east-asian-width database. }
+
+function NextCodepoint(const s: string; var i: Integer): LongWord;
+var
+  b: Byte;
+  n, k: Integer;
+begin
+  b := Byte(s[i]);
+  if b < $80 then begin Result := b; Inc(i); Exit; end
+  else if (b and $E0) = $C0 then begin Result := b and $1F; n := 1; end
+  else if (b and $F0) = $E0 then begin Result := b and $0F; n := 2; end
+  else if (b and $F8) = $F0 then begin Result := b and $07; n := 3; end
+  else begin Result := b; Inc(i); Exit; end;   { stray continuation byte }
+  Inc(i);
+  for k := 1 to n do
+  begin
+    if (i > Length(s)) or ((Byte(s[i]) and $C0) <> $80) then Exit; { truncated }
+    Result := (Result shl 6) or (Byte(s[i]) and $3F);
+    Inc(i);
+  end;
+end;
+
+function CpWidth(cp: LongWord): Integer;
+begin
+  { zero width: combining marks, ZWJ and friends, variation selectors,
+    emoji skin-tone modifiers (they merge into the preceding emoji) }
+  if ((cp >= $0300) and (cp <= $036F)) or ((cp >= $200B) and (cp <= $200F))
+    or ((cp >= $FE00) and (cp <= $FE0F)) or ((cp >= $1F3FB) and (cp <= $1F3FF)) then
+    Result := 0
+  { double width: CJK blocks, wide forms, emoji }
+  else if ((cp >= $1100) and (cp <= $115F)) or ((cp >= $2E80) and (cp <= $A4CF))
+    or ((cp >= $AC00) and (cp <= $D7A3)) or ((cp >= $F900) and (cp <= $FAFF))
+    or ((cp >= $FE30) and (cp <= $FE4F)) or ((cp >= $FF00) and (cp <= $FF60))
+    or ((cp >= $FFE0) and (cp <= $FFE6)) or ((cp >= $1F300) and (cp <= $1FAFF))
+    or (cp >= $20000) then
+    Result := 2
+  else
+    Result := 1;
+end;
+
+function Utf8CellWidth(const s: string): Integer;
+var
+  i: Integer;
+begin
+  Result := 0;
+  i := 1;
+  while i <= Length(s) do
+    Inc(Result, CpWidth(NextCodepoint(s, i)));
+end;
+
+{ Pad with spaces to `cells` display cells (never truncates, like %-Ns). }
+function Utf8PadRight(const s: string; cells: Integer): string;
+var
+  pad: Integer;
+begin
+  Result := s;
+  pad := cells - Utf8CellWidth(s);
+  if pad > 0 then Result := Result + StringOfChar(' ', pad);
+end;
+
+{ Take a prefix of at most `maxCells` display cells, never splitting a
+  UTF-8 sequence (a byte-count Copy can cut an emoji in half). }
+function Utf8CopyCells(const s: string; maxCells: Integer): string;
+var
+  i, prev, used: Integer;
+begin
+  i := 1;
+  used := 0;
+  while i <= Length(s) do
+  begin
+    prev := i;
+    Inc(used, CpWidth(NextCodepoint(s, i)));
+    if used > maxCells then begin i := prev; Break; end;
+  end;
+  Result := Copy(s, 1, i - 1);
+end;
+
 procedure CmdNodes;
 var
   i: Integer;
@@ -717,13 +798,13 @@ begin
     if n.Snr <> 0 then snr := Format('%.1f', [n.Snr]) else snr := '-';
     if n.HasBattery then bat := IntToStr(n.Battery) + '%' else bat := '-';
     if not PagerLine(p,
-      '  ' + Paint(C_NAME, Format('%-5s', [nm])) +
+      '  ' + Paint(C_NAME, Utf8PadRight(nm, 5)) +
       '  ' + Paint(C_NAME, Format('%-10s', [NodeNumToId(n.Num)])) +
       '  ' + Paint(C_HOPS, Format('%-4s', [hops])) +
       '  ' + Paint(C_SNR, Format('%-6s', [snr])) +
       '  ' + Paint(C_META, Format('%-4s', [bat])) +
       '  ' + Paint(C_META, Format('%-5s', [AgeStr(n.LastHeard)])) +
-      '  ' + Paint(C_TEXT, Copy(n.User.LongName, 1, 24))) then Exit;
+      '  ' + Paint(C_TEXT, Utf8CopyCells(n.User.LongName, 24))) then Exit;
   end;
 end;
 
