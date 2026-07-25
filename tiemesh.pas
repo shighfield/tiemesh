@@ -509,9 +509,11 @@ begin
     32: Result := 'BAD_REQUEST';
     33: Result := 'NOT_AUTHORIZED (wrong channel for that node)';
     34: Result := 'PKI_FAILED';
-    35: Result := 'PKI_UNKNOWN_PUBKEY (no public key known for that node)';
+    35: Result := 'PKI_UNKNOWN_PUBKEY (received an encrypted packet but the sender''s key is unknown)';
     36: Result := 'ADMIN_BAD_SESSION_KEY';
     37: Result := 'ADMIN_PUBLIC_KEY_UNAUTHORIZED';
+    38: Result := 'RATE_LIMIT_EXCEEDED (sending too fast for this packet type)';
+    39: Result := 'PKI_SEND_FAIL_PUBLIC_KEY (no public key stored for that node - try /whois)';
   else
     Result := Format('error %d', [code]);
   end;
