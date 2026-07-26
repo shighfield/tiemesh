@@ -1599,22 +1599,43 @@ begin
   end;
 end;
 
-procedure WaitForConfig(timeoutMs: Integer);
+{ Wait for the want_config dump to finish. A radio with its serial debug
+  console enabled can take a minute or more to stream a large node database,
+  so the overall cap is generous; what actually ends the wait early is
+  INACTIVITY - if nothing new has arrived for quietMs the radio is either
+  done-and-lost or not talking, and there is no point sitting out the cap. }
+procedure WaitForConfig(maxMs: Integer);
+const
+  quietMs = 10000;
 var
-  waited: Integer;
+  waited, lastActivity, lastSeen, seen: Integer;
 begin
-  Writeln('Requesting node database from radio ...');
+  Writeln('Requesting node database from radio (large meshes can take a minute) ...');
   Client.BeginConfig;
   waited := 0;
-  while (not Client.ConfigComplete) and (waited < timeoutMs) do
+  lastActivity := 0;
+  lastSeen := Client.NodeCount + Client.ChannelCount;
+  while (not Client.ConfigComplete) and (waited < maxMs) do
   begin
     Client.Poll;
     Sleep(20);
     Inc(waited, 20);
+    seen := Client.NodeCount + Client.ChannelCount;
+    if seen <> lastSeen then
+    begin
+      lastSeen := seen;
+      lastActivity := waited;
+    end;
+    if (waited - lastActivity) > quietMs then Break;
   end;
   if not Client.ConfigComplete then
-    Writeln('Warning: configuration did not complete within ',
-      timeoutMs div 1000, 's; continuing anyway.');
+  begin
+    if waited >= maxMs then
+      Writeln('Warning: configuration did not complete within ',
+        maxMs div 1000, 's; continuing anyway.')
+    else
+      Writeln('Warning: radio went quiet before config completed; continuing anyway.');
+  end;
 end;
 
 begin
@@ -1655,7 +1676,7 @@ begin
     Client.OnTelemetry := @Handlers.OnTelemetry;
     Client.OnNodeInfo := @Handlers.OnNodeInfo;
 
-    WaitForConfig(8000);
+    WaitForConfig(90000);
 
     Writeln;
     Writeln('Connected. Type /help for commands, /quit to exit.');

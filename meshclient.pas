@@ -379,10 +379,17 @@ begin
       SetChannel(fr.Channel);
     frConfigComplete:
       begin
-        if fr.ConfigCompleteId = FNonce then FConfigDone := True;
-        if Assigned(FOnConfig) then
-          FOnConfig(Format('Config complete: %d nodes, %d channels, my node %s',
-            [Length(FNodes), Length(FChannels), NodeLabel(FMyNum)]));
+        { The id echoes our nonce. A mismatch is the tail of an earlier
+          session's dump still draining out of the radio - not our config. }
+        if fr.ConfigCompleteId = FNonce then
+        begin
+          FConfigDone := True;
+          if Assigned(FOnConfig) then
+            FOnConfig(Format('Config complete: %d nodes, %d channels, my node %s',
+              [Length(FNodes), Length(FChannels), NodeLabel(FMyNum)]));
+        end
+        else if Assigned(FOnConfig) then
+          FOnConfig('Ignored a stale config-complete from an earlier session');
       end;
     frPacket:
       HandlePacket(fr.Packet);
