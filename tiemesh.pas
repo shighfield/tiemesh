@@ -51,6 +51,7 @@ var
   CursorPos: Integer = 0;       { 0..Length(Input): chars to the left of the cursor }
   Running: Boolean = True;
   Verbose: Boolean = False;
+  DebugCapture: Boolean = False; { /capture: log device debug to file, silently }
   NoColour: Boolean = False;    { --no-colour disables all ANSI colouring }
   ConfirmSends: Boolean = True; { ask 'send?' before transmitting a message }
   ShowIdsFlag: Boolean = False; { --show-ids: start with node ids alongside names }
@@ -311,17 +312,21 @@ begin
 end;
 
 { Device debug console text. Kept OUT of the main message log so that /log stays
-  readable. Only surfaces when --verbose/`/verbose` is on, and then goes to a
-  separate ~/tiemesh-debug.log, never the main log. }
+  readable. Surfaces on screen under --verbose/`/verbose`; written to a separate
+  ~/tiemesh-debug.log under /verbose OR /capture (the latter silently), never
+  shown by default and never in the main log. }
 procedure DebugLog(const raw: string);
 var
   s: string;
 begin
-  if not Verbose then Exit;
+  if not (Verbose or DebugCapture) then Exit;
   s := StripAnsi(raw);
-  BeginAsync;
-  Writeln('. ', s);
-  DrawPrompt;
+  if Verbose then
+  begin
+    BeginAsync;
+    Writeln('. ', s);
+    DrawPrompt;
+  end;
   if not DebugFileOpen then
   begin
     try
@@ -672,6 +677,7 @@ begin
   Show('  /log                   replay this session''s messages');
   Show('  /log <n>               show the last n lines from the log file');
   Show('  /verbose               toggle device debug output');
+  Show('  /capture               toggle silent capture of device debug to file');
   Show('  /version               show version and compile date');
   Show('  /confirm               toggle the send-confirmation prompt');
   Show('  /names                 toggle short names / short names with !ids');
@@ -1172,6 +1178,13 @@ begin
     '/log':          CmdLog(rest);
     '/clear':        begin ClrScr; DrawPrompt; end;
     '/verbose':      begin Verbose := not Verbose; Show('verbose = ' + BoolToStr(Verbose, True)); end;
+    '/capture':      begin
+                       DebugCapture := not DebugCapture;
+                       if DebugCapture then
+                         Show('capturing device debug to ' + DebugPath)
+                       else
+                         Show('capture off');
+                     end;
     '/version':      ShowPainted(C_BANNER, BannerText);
     '/confirm':      begin ConfirmSends := not ConfirmSends; Show('confirm-before-send = ' + BoolToStr(ConfirmSends, True)); end;
     '/hops':

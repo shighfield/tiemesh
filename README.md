@@ -122,6 +122,7 @@ as plain text.
 /log                   replay this session's messages (colourised)
 /log <n>               show the last n lines from the log file
 /verbose               toggle device debug output
+/capture               toggle silent capture of device debug to file
 /confirm               toggle the send-confirmation prompt
 /names                 toggle short names / short names with !ids
 /hops [n]              show or set the outgoing hop limit (1..7)
@@ -161,10 +162,11 @@ session's messages in colour; `/log <n>` reads the last n lines back from the
 file, so it shows the full history across sessions (the file is appended to,
 never truncated). `/clear` only wipes the visible screen. Lines replayed from the
 file are plain text (as stored); live and session messages are colourised. The
-radio's own debug console output is kept separate: it is discarded by default
-and, only under `--verbose`/`/verbose`, shown on screen and written to
-`~/tiemesh-debug.log` (ANSI colour codes
-stripped). This keeps `/log` and `~/tiemesh.log` to actual messages rather than
+radio's own debug console output is kept separate: it is discarded by default.
+Under `--verbose`/`/verbose` it is shown on screen and written to
+`~/tiemesh-debug.log` (ANSI colour codes stripped); `/capture` writes it to that
+file **without** showing it on screen, for quietly recording a radio's console.
+This keeps `/log` and `~/tiemesh.log` to actual messages rather than
 device internals.
 
 ## Line editing and history
