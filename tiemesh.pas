@@ -311,20 +311,90 @@ begin
   end;
 end;
 
-{ Device debug console text. Kept OUT of the main message log so that /log stays
-  readable. Surfaces on screen under --verbose/`/verbose`; written to a separate
-  ~/tiemesh-debug.log under /verbose OR /capture (the latter silently), never
-  shown by default and never in the main log. }
-procedure DebugLog(const raw: string);
+{ Convert the device's ANSI SGR colour codes into our paint markers so CRT can
+  render them (CRT swallows raw escape codes, so they cannot just be printed).
+  Also understands the legacy mangled form ".[34m" left in old debug logs by
+  the framer before it preserved ESC. Foreground codes 3x map onto the BRIGHT
+  CRT palette: the firmware picks colours for a white console background and
+  the dark variants vanish on a typical dark terminal. Non-colour escape
+  sequences are dropped; with --no-colour the codes are stripped instead. }
+function AnsiToPainted(const s: string): string;
+const
+  Bright: array[0..7] of Byte = (DarkGray, LightRed, LightGreen, Yellow,
+                                 LightBlue, LightMagenta, LightCyan, White);
+
+  procedure ApplyCode(var r: string; n: Integer);
+  begin
+    if NoColour then Exit;
+    if n = 0 then r := r + CLR_MARK + Chr(255)
+    else if (n >= 30) and (n <= 37) then r := r + CLR_MARK + Chr(Bright[n - 30])
+    else if (n >= 90) and (n <= 97) then r := r + CLR_MARK + Chr(Bright[n - 90]);
+    { bold / background / other attributes: ignored }
+  end;
+
 var
-  s: string;
+  i, j, k, n: Integer;
+  isEsc: Boolean;
+begin
+  Result := '';
+  i := 1;
+  while i <= Length(s) do
+  begin
+    isEsc := s[i] = #27;
+    if (isEsc or (s[i] = '.')) and (i < Length(s)) and (s[i + 1] = '[') then
+    begin
+      j := i + 2;
+      while (j <= Length(s)) and (s[j] in ['0'..'9', ';']) do Inc(j);
+      { the '.' legacy form must have at least one digit to count as a code }
+      if (j <= Length(s)) and (s[j] = 'm') and (isEsc or (j > i + 2)) then
+      begin
+        n := 0;
+        for k := i + 2 to j do
+          if (k = j) or (s[k] = ';') then
+          begin
+            ApplyCode(Result, n);
+            n := 0;
+          end
+          else
+            n := n * 10 + Ord(s[k]) - Ord('0');
+        i := j + 1;
+      end
+      else if isEsc then
+      begin
+        { some other escape sequence: drop it entirely }
+        j := i + 2;
+        while (j <= Length(s)) and not (s[j] in ['A'..'Z', 'a'..'z']) do Inc(j);
+        i := j + 1;
+      end
+      else
+      begin
+        Result := Result + s[i];   { an ordinary dot }
+        Inc(i);
+      end;
+    end
+    else if isEsc then
+      Inc(i)                       { bare ESC: drop }
+    else
+    begin
+      Result := Result + s[i];
+      Inc(i);
+    end;
+  end;
+end;
+
+{ Device debug console text. Kept OUT of the main message log so that /log stays
+  readable. Surfaces on screen under --verbose/`/verbose` (with the device's
+  colours rendered); written to a separate ~/tiemesh-debug.log under /verbose OR
+  /capture (the latter silently). The file keeps the raw ANSI codes so `cat`
+  shows it coloured and /dlog can re-render it. }
+procedure DebugLog(const raw: string);
 begin
   if not (Verbose or DebugCapture) then Exit;
-  s := StripAnsi(raw);
   if Verbose then
   begin
     BeginAsync;
-    Writeln('. ', s);
+    WriteColoured('. ' + AnsiToPainted(raw));
+    Writeln;
     DrawPrompt;
   end;
   if not DebugFileOpen then
@@ -339,7 +409,7 @@ begin
   end;
   if DebugFileOpen then
   begin
-    Writeln(DebugFile, FormatDateTime('yyyy-mm-dd hh:nn:ss', Now), '  ', s);
+    Writeln(DebugFile, FormatDateTime('yyyy-mm-dd hh:nn:ss', Now), '  ', raw);
     Flush(DebugFile);
   end;
 end;
@@ -678,6 +748,7 @@ begin
   Show('  /log <n>               show the last n lines from the log file');
   Show('  /verbose               toggle device debug output');
   Show('  /capture               toggle silent capture of device debug to file');
+  Show('  /dlog [n]              show the last n debug-log lines, coloured');
   Show('  /version               show version and compile date');
   Show('  /confirm               toggle the send-confirmation prompt');
   Show('  /names                 toggle short names / short names with !ids');
@@ -1011,6 +1082,60 @@ begin
   PagerLine(p, Paint(C_META, '--- end of log ---'));
 end;
 
+{ "/dlog [n]" -> last n lines of the device debug log, with the device's own
+  ANSI colours rendered through CRT (the file stores them raw). }
+procedure CmdDLog(const arg: string);
+var
+  n, i, code, total, shown, idx: Integer;
+  p: TPager;
+  f: Text;
+  ln: string;
+  ring: array of string;
+begin
+  Val(Trim(arg), n, code);
+  if (code <> 0) or (n <= 0) then n := 20;
+
+  if DebugFileOpen then Flush(DebugFile);
+  SetLength(ring, n);
+  total := 0;
+  {$I-}
+  AssignFile(f, DebugPath);
+  Reset(f);
+  {$I+}
+  if IOResult <> 0 then
+  begin
+    ShowPainted(C_META, 'no debug log yet at ' + DebugPath +
+      ' (use /verbose or /capture to start one)');
+    Exit;
+  end;
+  while not Eof(f) do
+  begin
+    ReadLn(f, ln);
+    ring[total mod n] := ln;
+    Inc(total);
+  end;
+  CloseFile(f);
+
+  shown := total;
+  if shown > n then shown := n;
+
+  PagerInit(p);
+  if not PagerLine(p, Paint(C_META,
+    Format('--- last %d debug lines (of %d) from %s ---', [shown, total, DebugPath]))) then Exit;
+  for i := 0 to shown - 1 do
+  begin
+    idx := (total - shown + i) mod n;
+    ln := ring[idx];
+    { "yyyy-mm-dd hh:nn:ss  " prefix in the timestamp colour, rest as device }
+    if (Length(ln) > 21) and (ln[5] = '-') and (ln[11] = ' ') then
+      ln := Paint(C_TIME, Copy(ln, 1, 19)) + '  ' + AnsiToPainted(Copy(ln, 22, MaxInt))
+    else
+      ln := AnsiToPainted(ln);
+    if not PagerLine(p, ln) then Exit;
+  end;
+  PagerLine(p, Paint(C_META, '--- end of debug log ---'));
+end;
+
 procedure DoSendText(const text: string);
 var
   id: LongWord;
@@ -1176,6 +1301,7 @@ begin
     '/to':           DoTo(rest);
     '/ch':           DoCh(rest);
     '/log':          CmdLog(rest);
+    '/dlog':         CmdDLog(rest);
     '/clear':        begin ClrScr; DrawPrompt; end;
     '/verbose':      begin Verbose := not Verbose; Show('verbose = ' + BoolToStr(Verbose, True)); end;
     '/capture':      begin

@@ -225,6 +225,10 @@ begin
     FlushDebug
   else if (c >= 32) and (c < 127) then
     FDbgLine := FDbgLine + Chr(c)
+  else if c = 27 then
+    { keep ANSI escapes intact: the device colours its console output, and
+      replacing ESC here would leave unrenderable ".[34m" fragments }
+    FDbgLine := FDbgLine + #27
   else
     FDbgLine := FDbgLine + '.';
 end;
