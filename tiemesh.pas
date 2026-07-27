@@ -41,7 +41,7 @@ uses
 
 const
   PROMPT = '> ';
-  VERNUM = 0.01;                  { tiemesh version number }
+  VERNUM = 0.05;                  { tiemesh version number; bump on each new feature }
   COMPDATE = {$I %DATE%};         { compile date, stamped in by the compiler }
 
 var
