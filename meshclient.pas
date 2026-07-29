@@ -24,9 +24,19 @@ type
   TTelemetryEvent = procedure(fromNum: LongWord; const t: TTelemetry) of object;
   TNodeInfoEvent  = procedure(fromNum: LongWord; const shortName, longName: string) of object;
 
+  { Running RF-quality statistics over the packets the radio has decoded and
+    forwarded this session (their rx_snr/rx_rssi fields). }
+  TRfStats = record
+    Count: Integer;
+    SnrLast, SnrMin, SnrMax, SnrSum: Single;
+    RssiLast, RssiMin, RssiMax: LongInt;
+    RssiSum: Int64;
+  end;
+
   TMeshClient = class
   private
     FT: ITransport;
+    FRf: TRfStats;
     FNodes: array of TMeshNode;
     FChannels: array of TChannelInfo;
     FPendingAcks: array of LongWord;
@@ -65,6 +75,7 @@ type
     function GetChannel(i: Integer): TChannelInfo;
     function MyNum: LongWord;
     function ConfigComplete: Boolean;
+    function RfStats: TRfStats;
 
     function ResolveTarget(const s: string; out num: LongWord): Boolean;
     function NodeLabel(num: LongWord): string;
@@ -285,6 +296,27 @@ var
 begin
   TouchNode(p.FromNum, p.RxSnr, p.RxTime);
 
+  { RF stats: only packets that actually crossed the air carry rx values;
+    packets originated locally or via the API leave them zero. }
+  if (p.RxSnr <> 0) or (p.RxRssi <> 0) then
+  begin
+    if FRf.Count = 0 then
+    begin
+      FRf.SnrMin := p.RxSnr;   FRf.SnrMax := p.RxSnr;
+      FRf.RssiMin := p.RxRssi; FRf.RssiMax := p.RxRssi;
+    end
+    else
+    begin
+      if p.RxSnr < FRf.SnrMin then FRf.SnrMin := p.RxSnr;
+      if p.RxSnr > FRf.SnrMax then FRf.SnrMax := p.RxSnr;
+      if p.RxRssi < FRf.RssiMin then FRf.RssiMin := p.RxRssi;
+      if p.RxRssi > FRf.RssiMax then FRf.RssiMax := p.RxRssi;
+    end;
+    FRf.SnrLast := p.RxSnr;   FRf.SnrSum := FRf.SnrSum + p.RxSnr;
+    FRf.RssiLast := p.RxRssi; FRf.RssiSum := FRf.RssiSum + p.RxRssi;
+    Inc(FRf.Count);
+  end;
+
   if not p.HasDecoded then
   begin
     if p.Encrypted and Assigned(FOnDebug) then
@@ -446,6 +478,11 @@ end;
 function TMeshClient.MyNum: LongWord;
 begin
   Result := FMyNum;
+end;
+
+function TMeshClient.RfStats: TRfStats;
+begin
+  Result := FRf;
 end;
 
 function TMeshClient.ConfigComplete: Boolean;

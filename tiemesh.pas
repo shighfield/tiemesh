@@ -41,7 +41,7 @@ uses
 
 const
   PROMPT = '> ';
-  VERNUM = 0.05;                  { tiemesh version number; bump on each new feature }
+  VERNUM = 0.06;                  { tiemesh version number; bump on each new feature }
   COMPDATE = {$I %DATE%};         { compile date, stamped in by the compiler }
 
 var
@@ -414,6 +414,41 @@ begin
   end;
 end;
 
+{ Parse the firmware's periodic router-stats console line,
+  "[Router] txGood=..,txRelay=..,rxGood=..,rxBad=..". These flow through
+  OnDebug on every Poll whether or not debug display/capture is on. }
+function ParseRouterStats(const s: string; out tx, relay, rx, bad: LongInt): Boolean;
+
+  function Grab(const key: string; out v: LongInt): Boolean;
+  var
+    p, i: Integer;
+  begin
+    v := 0;
+    Result := False;
+    p := Pos(key, s);
+    if p = 0 then Exit;
+    i := p + Length(key);
+    while (i <= Length(s)) and (s[i] in ['0'..'9']) do
+    begin
+      v := v * 10 + Ord(s[i]) - Ord('0');
+      Inc(i);
+      Result := True;
+    end;
+  end;
+
+begin
+  Result := Grab('txGood=', tx) and Grab('txRelay=', relay) and
+            Grab('rxGood=', rx) and Grab('rxBad=', bad);
+end;
+
+var
+  RadioTx: LongInt = 0;          { latest counters parsed from the console }
+  RadioRelay: LongInt = 0;
+  RadioRx: LongInt = 0;
+  RadioBad: LongInt = 0;
+  RadioStatsSeen: Boolean = False;
+  RadioStatsAt: TDateTime = 0;
+
 { Track ids of public (broadcast) messages we sent with want_ack, so that when
   the implicit ACK comes back we can word it as "acknowledged" rather than the
   DM wording "delivered". A broadcast ACK means at least one node rebroadcast it. }
@@ -551,7 +586,15 @@ begin
 end;
 
 procedure THandlers.OnDebug(const line: string);
+var
+  tx, rel, rx, bad: LongInt;
 begin
+  if ParseRouterStats(line, tx, rel, rx, bad) then
+  begin
+    RadioTx := tx; RadioRelay := rel; RadioRx := rx; RadioBad := bad;
+    RadioStatsSeen := True;
+    RadioStatsAt := Now;
+  end;
   DebugLog(line);
 end;
 
@@ -734,6 +777,7 @@ end;
 
 procedure CmdHelp;
 begin
+
   Show('Commands:');
   Show('  /nodes                 list known nodes');
   Show('  /channels              list channels');
@@ -749,6 +793,7 @@ begin
   Show('  /verbose               toggle device debug output');
   Show('  /capture               toggle silent capture of device debug to file');
   Show('  /dlog [n]              show the last n debug-log lines, coloured');
+  Show('  /rf                    show signal quality (SNR/RSSI, radio counters)');
   Show('  /version               show version and compile date');
   Show('  /confirm               toggle the send-confirmation prompt');
   Show('  /names                 toggle short names / short names with !ids');
@@ -1082,6 +1127,59 @@ begin
   PagerLine(p, Paint(C_META, '--- end of log ---'));
 end;
 
+{ "/rf" -> signal-quality summary: SNR/RSSI of everything heard this session
+  plus the radio's own tx/rx counters. The point is to make "why don't I get
+  acks" visible without reading debug logs: an implicit ack needs a neighbour's
+  rebroadcast to DECODE, and near the noise floor those land in rxBad. }
+procedure CmdRf;
+var
+  rf: TRfStats;
+  avgS, avgR: Single;
+  pct: Integer;
+  verdict: string;
+  vc: Byte;
+begin
+  rf := Client.RfStats;
+  ShowPainted(C_META, 'RF status (this session):');
+  if rf.Count = 0 then
+    ShowPainted(C_TEXT, '  no over-the-air packets heard yet')
+  else
+  begin
+    avgS := rf.SnrSum / rf.Count;
+    avgR := rf.RssiSum / rf.Count;
+    ShowPainted(C_TEXT, Format('  heard %d packet(s) carrying radio info', [rf.Count]));
+    ShowPainted(C_SNR, Format('  SNR   last %6.1f   avg %6.1f   best %6.1f   worst %6.1f  dB',
+      [rf.SnrLast, avgS, rf.SnrMax, rf.SnrMin]));
+    ShowPainted(C_SNR, Format('  RSSI  last %6d   avg %6.0f   best %6d   worst %6d  dBm',
+      [rf.RssiLast, avgR, rf.RssiMax, rf.RssiMin]));
+    { LongFast stops decoding around -19 dB SNR, so average headroom above
+      that is what makes acks reliable. }
+    if avgS > -10 then
+    begin
+      vc := C_ACK; verdict := 'healthy - comfortable decode margin';
+    end
+    else if avgS > -15 then
+    begin
+      vc := C_META; verdict := 'marginal - acks may be hit-and-miss';
+    end
+    else
+    begin
+      vc := C_ERR; verdict := 'very weak - check antenna seating, try elevation or a window';
+    end;
+    ShowPainted(vc, '  verdict: ' + verdict);
+  end;
+  if RadioStatsSeen then
+  begin
+    pct := 0;
+    if RadioRx + RadioBad > 0 then pct := Round(100 * RadioBad / (RadioRx + RadioBad));
+    Show(Paint(C_TEXT, Format('  radio: txGood %d  txRelay %d  rxGood %d  rxBad %d (%d%% of receives corrupt)',
+      [RadioTx, RadioRelay, RadioRx, RadioBad, pct])) +
+      Paint(C_HOPS, FormatDateTime('  "as of" hh:nn:ss', RadioStatsAt)));
+  end
+  else
+    ShowPainted(C_HOPS, '  radio counters not seen yet (the radio prints them every ~30s)');
+end;
+
 { "/dlog [n]" -> last n lines of the device debug log, with the device's own
   ANSI colours rendered through CRT (the file stores them raw). }
 procedure CmdDLog(const arg: string);
@@ -1302,6 +1400,7 @@ begin
     '/ch':           DoCh(rest);
     '/log':          CmdLog(rest);
     '/dlog':         CmdDLog(rest);
+    '/rf':           CmdRf;
     '/clear':        begin ClrScr; DrawPrompt; end;
     '/verbose':      begin Verbose := not Verbose; Show('verbose = ' + BoolToStr(Verbose, True)); end;
     '/capture':      begin

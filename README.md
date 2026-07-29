@@ -124,6 +124,7 @@ as plain text.
 /verbose               toggle device debug output
 /capture               toggle silent capture of device debug to file
 /dlog [n]              show the last n debug-log lines, coloured
+/rf                    show signal quality (SNR/RSSI, radio counters)
 /confirm               toggle the send-confirmation prompt
 /names                 toggle short names / short names with !ids
 /hops [n]              show or set the outgoing hop limit (1..7)
@@ -171,6 +172,15 @@ console. The debug file keeps the device's raw ANSI colour codes, so `cat` (or
 `less -R`) shows it coloured, and `/dlog [n]` replays the last n lines in-app
 with the colours rendered. This keeps `/log` and `~/tiemesh.log` to actual
 messages rather than device internals.
+
+`/rf` summarises signal quality without any log reading: SNR/RSSI (last,
+average, best, worst) of everything heard this session, a plain-words verdict,
+and the radio's own `txGood`/`rxGood`/`rxBad` counters (parsed quietly from its
+console output even when debug display is off). Useful when messages stop
+getting acknowledged: an "acknowledged" needs a neighbour's rebroadcast to
+*decode* at your radio, and if the average SNR sits near the LongFast decode
+floor (about −19 dB) those rebroadcasts are mostly lost as `rxBad` corruption —
+the fix is antenna seating or a better position, not client settings.
 
 ## Line editing and history
 
